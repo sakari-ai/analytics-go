@@ -26,6 +26,7 @@ func main() {
 	trackPage(sakari)
 	trackArbitraryEvent(sakari)
 	trackGroupEvent_By_Context(sakari)
+	trackIdentify(sakari)
 }
 
 func trackPage(sakari *analytics.Client) {
@@ -41,5 +42,14 @@ func trackGroupEvent_By_Context(sakari *analytics.Client) {
 	_ = sakari.Group(
 		&analytics.Group{GroupId: "group-1", Traits: analytics.NewTrait().Set("package", "premium")},
 		analytics.WithContext(context.Background()), // optional
+	)
+}
+
+func trackIdentify(sakari *analytics.Client) {
+	_ = sakari.Identify(
+		&analytics.Identify{
+			UserId:      "user@gmail.com",
+			AnonymousId: "user-id",
+			Traits:      analytics.NewTrait().Set("package", "premium")},
 	)
 }

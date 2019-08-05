@@ -265,7 +265,7 @@ func (c *Client) Group(msg *Group, opts ...ContextOptions) error {
 }
 
 // Identify buffers an "identify" message.
-func (c *Client) Identify(msg *Identify, opts ...ContextOptions) error {
+func (c *Client) Identify(msg *Identify) error {
 	if exist := msg.Context["library"]; exist == nil {
 		if msg.Context == nil {
 			msg.Context = DefaultContext
@@ -273,11 +273,6 @@ func (c *Client) Identify(msg *Identify, opts ...ContextOptions) error {
 	}
 	if msg.UserId == "" {
 		return errors.New("you must pass 'identify.userId'")
-	}
-	for _, targetContext := range opts {
-		targetContext(c, func(userId string) {
-			msg.AnonymousId = userId
-		})
 	}
 	if msg.AnonymousId == "" {
 		return ErrorUserIdNotFound
