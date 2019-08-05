@@ -3,18 +3,18 @@ package main
 import "github.com/sakari-ai/analytics-go"
 
 // User mock up sourcing
+// Ideally, this UserSession service must return via Context
 type UserSession struct {
 }
 
 func (u *UserSession) GetUserId() string {
-	// return your current user id
+	// return your current user id by session base
 	return "user-id"
 }
 func main() {
 	session := new(UserSession)
 	sakari := analytics.New("uyKDw5O0p0t6IwuWAMtiMixT2vXpoLUH",
 		"156c5bcd-2b8b-437c-b58c-10ab2982cc28",
-		analytics.WithAnonymousId("anonymous-id"),
 		analytics.WithInitialUserSourcing(session.GetUserId))
 
 	defer sakari.Close()

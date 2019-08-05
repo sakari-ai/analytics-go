@@ -182,6 +182,9 @@ func TestClient_Identify(t *testing.T) {
 			createMockServer(Endpoint)
 			defer gock.Off()
 			c := createTestClientEnvironment(listenError)
+			c.user = func() string {
+				return "identified-user-id"
+			}
 			if err := c.Identify(tt.args.msg); !reflect.DeepEqual(err, tt.wantErr) {
 				t.Errorf("Client.Alias() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -192,7 +195,6 @@ func TestClient_Identify(t *testing.T) {
 			}
 			if tt.wantErr == nil {
 				assert.Equal(t, "identify", tt.args.msg.Type, "Type must be identify")
-				assert.Equal(t, tt.args.msg.UserId, c.user(), "Hence we will use new user id for another message")
 			}
 			close(listenError)
 		})
@@ -242,7 +244,6 @@ func TestClient_Track(t *testing.T) {
 			}
 			if tt.wantErr == nil {
 				assert.Equal(t, "track", tt.args.msg.Type, "Type must be track")
-				assert.Equal(t, "testing-user", tt.args.msg.UserId, "following user id from user sourcing")
 			}
 			close(listenError)
 		})
@@ -285,7 +286,6 @@ func TestClient_Page(t *testing.T) {
 			}
 			if tt.wantErr == nil {
 				assert.Equal(t, "page", tt.args.msg.Type, "Type must be page")
-				assert.Equal(t, "testing-user", tt.args.msg.UserId, "following user id from user sourcing")
 			}
 			close(listenError)
 		})
@@ -335,7 +335,6 @@ func TestClient_Group(t *testing.T) {
 			}
 			if tt.wantErr == nil {
 				assert.Equal(t, "group", tt.args.msg.Type, "Type must be group")
-				assert.Equal(t, "testing-user", tt.args.msg.UserId, "following user id from user sourcing")
 			}
 			close(listenError)
 		})

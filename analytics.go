@@ -23,16 +23,18 @@ const Version = "2.1.0"
 // Endpoint for the Segment API.
 const Endpoint = "https://jpeg.sakari.ai"
 
-// DefaultContext of message batches.
-var DefaultContext = map[string]interface{}{
-	"library": map[string]interface{}{
-		"name":    "Sakari Analytics Go",
-		"version": Version,
-	},
-}
-
-// Backoff policy.
-var Backo = backo.DefaultBacko()
+var (
+	// DefaultContext of message batches.
+	DefaultContext = map[string]interface{}{
+		"library": map[string]interface{}{
+			"name":    "Sakari Analytics Go",
+			"version": Version,
+		},
+	}
+	// Backoff policy.
+	Backo               = backo.DefaultBacko()
+	ErrorUserIdNotFound = errors.New("message doesn't have anonymousId or can not read from UserSourcing")
+)
 
 // Message interface.
 type message interface {
@@ -151,12 +153,6 @@ func WithInitialUserSourcing(sourcing UserSourcing) Options {
 	}
 }
 
-func WithAnonymousId(id string) Options {
-	return func(c *Client) {
-		c.anonymousId = id
-	}
-}
-
 func WithLogger(logger *log.Logger) Options {
 	return func(c *Client) {
 		c.Logger = logger
@@ -186,9 +182,6 @@ func New(key, account string, opts ...Options) *Client {
 	for _, apply := range opts {
 		apply(c)
 	}
-	if c.anonymousId == "" {
-		c.anonymousId = uid()
-	}
 	c.upcond.L = &c.upmtx
 	return c
 }
@@ -214,15 +207,13 @@ func (c *Client) Page(msg *Page) error {
 	if exist := msg.Context["library"]; exist == nil {
 		if msg.Context == nil {
 			msg.Context = DefaultContext
-		} else {
-			msg.Context["library"] = DefaultContext["library"]
 		}
 	}
-	if msg.UserId == "" {
-		msg.UserId = c.user()
+	if msg.AnonymousId == "" {
+		msg.AnonymousId = c.user()
 	}
 	if msg.AnonymousId == "" {
-		msg.AnonymousId = c.anonymousId
+		return ErrorUserIdNotFound
 	}
 
 	msg.Type = "page"
@@ -236,19 +227,17 @@ func (c *Client) Group(msg *Group) error {
 	if exist := msg.Context["library"]; exist == nil {
 		if msg.Context == nil {
 			msg.Context = DefaultContext
-		} else {
-			msg.Context["library"] = DefaultContext["library"]
 		}
 	}
 	if msg.GroupId == "" {
 		return errors.New("you must pass a 'groupId'")
 	}
 
-	if msg.UserId == "" {
-		msg.UserId = c.user()
+	if msg.AnonymousId == "" {
+		msg.AnonymousId = c.user()
 	}
 	if msg.AnonymousId == "" {
-		msg.AnonymousId = c.anonymousId
+		return ErrorUserIdNotFound
 	}
 
 	msg.Type = "group"
@@ -262,19 +251,16 @@ func (c *Client) Identify(msg *Identify) error {
 	if exist := msg.Context["library"]; exist == nil {
 		if msg.Context == nil {
 			msg.Context = DefaultContext
-		} else {
-			msg.Context["library"] = DefaultContext["library"]
 		}
-	}
-	if msg.AnonymousId == "" {
-		msg.AnonymousId = c.anonymousId
 	}
 	if msg.UserId == "" {
 		return errors.New("you must pass 'identify.userId'")
 	}
-	newUserId := msg.UserId
-	c.user = func() string {
-		return newUserId
+	if msg.AnonymousId == "" {
+		msg.AnonymousId = c.user()
+	}
+	if msg.AnonymousId == "" {
+		return ErrorUserIdNotFound
 	}
 
 	msg.Type = "identify"
@@ -288,19 +274,16 @@ func (c *Client) Track(msg *Track) error {
 	if exist := msg.Context["library"]; exist == nil {
 		if msg.Context == nil {
 			msg.Context = DefaultContext
-		} else {
-			msg.Context["library"] = DefaultContext["library"]
 		}
 	}
 	if msg.Event == "" {
 		return errors.New("you must pass 'track.event'")
 	}
-
-	if msg.UserId == "" {
-		msg.UserId = c.user()
+	if msg.AnonymousId == "" {
+		msg.AnonymousId = c.user()
 	}
 	if msg.AnonymousId == "" {
-		msg.AnonymousId = c.anonymousId
+		return ErrorUserIdNotFound
 	}
 	msg.Type = "track"
 	c.queue(msg)
