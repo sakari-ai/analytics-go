@@ -3,7 +3,6 @@ package analytics
 import (
 	"fmt"
 	"io/ioutil"
-	"os"
 	"sync"
 
 	"bytes"
@@ -22,12 +21,12 @@ import (
 const Version = "2.1.0"
 
 // Endpoint for the Segment API.
-const Endpoint = "https://api.segment.io"
+const Endpoint = "https://jpeg.sakari.ai"
 
 // DefaultContext of message batches.
 var DefaultContext = map[string]interface{}{
 	"library": map[string]interface{}{
-		"name":    "analytics-go",
+		"name":    "Sakari Analytics Go",
 		"version": Version,
 	},
 }
@@ -92,7 +91,7 @@ type Track struct {
 type Page struct {
 	Context      map[string]interface{} `json:"context,omitempty"`
 	Integrations map[string]interface{} `json:"integrations,omitempty"`
-	Traits       map[string]interface{} `json:"properties,omitempty"`
+	Properties   map[string]interface{} `json:"properties,omitempty"`
 	AnonymousId  string                 `json:"anonymousId,omitempty"`
 	UserId       string                 `json:"userId,omitempty"`
 	Category     string                 `json:"category,omitempty"`
@@ -107,7 +106,9 @@ type Alias struct {
 	Message
 }
 
-// Client which batches messages and flushes at the given Interval or
+type UserSourcing func() string
+
+// httpClient which batches messages and flushes at the given Interval or
 // when the Size limit is exceeded. Set Verbose to true to enable
 // logging output.
 type Client struct {
@@ -118,15 +119,22 @@ type Client struct {
 	Size     int
 	Logger   *log.Logger
 	Verbose  bool
-	Client   http.Client
-	key      string
-	msgs     chan interface{}
-	quit     chan struct{}
-	shutdown chan struct{}
-	uid      func() string
-	now      func() time.Time
-	once     sync.Once
-	wg       sync.WaitGroup
+
+	httpClient http.Client
+	key        string
+	skAccount  string
+	msgs       chan interface{}
+	quit       chan struct{}
+	shutdown   chan struct{}
+	uid        func() string
+	now        func() time.Time
+	once       sync.Once
+	wg         sync.WaitGroup
+	sleep      func(int, error)
+	retry      int
+
+	user        UserSourcing
+	anonymousId string
 
 	// These synchronization primitives are used to control how many goroutines
 	// are spawned by the client for uploads.
@@ -135,25 +143,52 @@ type Client struct {
 	upcount int
 }
 
+type Options func(c *Client)
+
+func WithInitialUserSourcing(sourcing UserSourcing) Options {
+	return func(c *Client) {
+		c.user = sourcing
+	}
+}
+
+func WithAnonymousId(id string) Options {
+	return func(c *Client) {
+		c.anonymousId = id
+	}
+}
+
+func WithLogger(logger *log.Logger) Options {
+	return func(c *Client) {
+		c.Logger = logger
+	}
+}
+
 // New client with write key.
-func New(key string) *Client {
+func New(key, account string, opts ...Options) *Client {
 	c := &Client{
-		Endpoint: Endpoint,
-		Interval: 5 * time.Second,
-		Size:     250,
-		Logger:   log.New(os.Stderr, "segment ", log.LstdFlags),
-		Verbose:  false,
-		Client:   *http.DefaultClient,
-		key:      key,
-		msgs:     make(chan interface{}, 100),
-		quit:     make(chan struct{}),
-		shutdown: make(chan struct{}),
-		now:      time.Now,
-		uid:      uid,
+		Endpoint:   Endpoint,
+		Interval:   5 * time.Second,
+		Verbose:    false,
+		httpClient: *http.DefaultClient,
+		key:        key,
+		skAccount:  account,
+		msgs:       make(chan interface{}, 100),
+		quit:       make(chan struct{}),
+		shutdown:   make(chan struct{}),
+		now:        time.Now,
+		uid:        uid,
+		sleep: func(i int, err error) {
+			Backo.Sleep(i)
+		},
+		retry: 10,
 	}
 
-	c.logf("You are currently using the v2 version analytics-go, which is being deprecated. Please update to v3 as soon as you can https://segment.com/docs/sources/server/go/#migrating-from-v2")
-
+	for _, apply := range opts {
+		apply(c)
+	}
+	if c.anonymousId == "" {
+		c.anonymousId = uid()
+	}
 	c.upcond.L = &c.upmtx
 	return c
 }
@@ -161,11 +196,11 @@ func New(key string) *Client {
 // Alias buffers an "alias" message.
 func (c *Client) Alias(msg *Alias) error {
 	if msg.UserId == "" {
-		return errors.New("You must pass a 'userId'.")
+		return errors.New("you must pass a 'alias.userId'")
 	}
 
 	if msg.PreviousId == "" {
-		return errors.New("You must pass a 'previousId'.")
+		return errors.New("you must pass a 'alias.previousId'")
 	}
 
 	msg.Type = "alias"
@@ -176,8 +211,18 @@ func (c *Client) Alias(msg *Alias) error {
 
 // Page buffers an "page" message.
 func (c *Client) Page(msg *Page) error {
-	if msg.UserId == "" && msg.AnonymousId == "" {
-		return errors.New("You must pass either an 'anonymousId' or 'userId'.")
+	if exist := msg.Context["library"]; exist == nil {
+		if msg.Context == nil {
+			msg.Context = DefaultContext
+		} else {
+			msg.Context["library"] = DefaultContext["library"]
+		}
+	}
+	if msg.UserId == "" {
+		msg.UserId = c.user()
+	}
+	if msg.AnonymousId == "" {
+		msg.AnonymousId = c.anonymousId
 	}
 
 	msg.Type = "page"
@@ -188,12 +233,22 @@ func (c *Client) Page(msg *Page) error {
 
 // Group buffers an "group" message.
 func (c *Client) Group(msg *Group) error {
+	if exist := msg.Context["library"]; exist == nil {
+		if msg.Context == nil {
+			msg.Context = DefaultContext
+		} else {
+			msg.Context["library"] = DefaultContext["library"]
+		}
+	}
 	if msg.GroupId == "" {
-		return errors.New("You must pass a 'groupId'.")
+		return errors.New("you must pass a 'groupId'")
 	}
 
-	if msg.UserId == "" && msg.AnonymousId == "" {
-		return errors.New("You must pass either an 'anonymousId' or 'userId'.")
+	if msg.UserId == "" {
+		msg.UserId = c.user()
+	}
+	if msg.AnonymousId == "" {
+		msg.AnonymousId = c.anonymousId
 	}
 
 	msg.Type = "group"
@@ -204,8 +259,22 @@ func (c *Client) Group(msg *Group) error {
 
 // Identify buffers an "identify" message.
 func (c *Client) Identify(msg *Identify) error {
-	if msg.UserId == "" && msg.AnonymousId == "" {
-		return errors.New("You must pass either an 'anonymousId' or 'userId'.")
+	if exist := msg.Context["library"]; exist == nil {
+		if msg.Context == nil {
+			msg.Context = DefaultContext
+		} else {
+			msg.Context["library"] = DefaultContext["library"]
+		}
+	}
+	if msg.AnonymousId == "" {
+		msg.AnonymousId = c.anonymousId
+	}
+	if msg.UserId == "" {
+		return errors.New("you must pass 'identify.userId'")
+	}
+	newUserId := msg.UserId
+	c.user = func() string {
+		return newUserId
 	}
 
 	msg.Type = "identify"
@@ -216,14 +285,23 @@ func (c *Client) Identify(msg *Identify) error {
 
 // Track buffers an "track" message.
 func (c *Client) Track(msg *Track) error {
+	if exist := msg.Context["library"]; exist == nil {
+		if msg.Context == nil {
+			msg.Context = DefaultContext
+		} else {
+			msg.Context["library"] = DefaultContext["library"]
+		}
+	}
 	if msg.Event == "" {
-		return errors.New("You must pass 'event'.")
+		return errors.New("you must pass 'track.event'")
 	}
 
-	if msg.UserId == "" && msg.AnonymousId == "" {
-		return errors.New("You must pass either an 'anonymousId' or 'userId'.")
+	if msg.UserId == "" {
+		msg.UserId = c.user()
 	}
-
+	if msg.AnonymousId == "" {
+		msg.AnonymousId = c.anonymousId
+	}
 	msg.Type = "track"
 	c.queue(msg)
 
@@ -282,18 +360,17 @@ func (c *Client) send(msgs []interface{}) error {
 	batch.Messages = msgs
 	batch.MessageId = c.uid()
 	batch.SentAt = timestamp(c.now())
-	batch.Context = DefaultContext
 
 	b, err := json.Marshal(batch)
 	if err != nil {
 		return fmt.Errorf("error marshalling msgs: %s", err)
 	}
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < c.retry; i++ {
 		if err = c.upload(b); err == nil {
 			return nil
 		}
-		Backo.Sleep(i)
+		c.sleep(i, err)
 	}
 
 	return err
@@ -310,9 +387,10 @@ func (c *Client) upload(b []byte) error {
 	req.Header.Add("User-Agent", "analytics-go (version: "+Version+")")
 	req.Header.Add("Content-Type", "application/json")
 	req.Header.Add("Content-Length", string(len(b)))
-	req.SetBasicAuth(c.key, "")
+	req.Header.Set("X-AuthSakari", c.key)
+	req.Header.Set("X-AccountID", c.skAccount)
 
-	res, err := c.Client.Do(req)
+	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("error sending request: %s", err)
 	}
@@ -375,13 +453,17 @@ func (c *Client) loop() {
 // Verbose log.
 func (c *Client) verbose(msg string, args ...interface{}) {
 	if c.Verbose {
-		c.Logger.Printf(msg, args...)
+		if c.Logger != nil {
+			c.Logger.Printf(msg, args...)
+		}
 	}
 }
 
 // Unconditional log.
 func (c *Client) logf(msg string, args ...interface{}) {
-	c.Logger.Printf(msg, args...)
+	if c.Logger != nil {
+		c.Logger.Printf(msg, args...)
+	}
 }
 
 // Set message timestamp if one is not already set.
@@ -406,4 +488,41 @@ func timestamp(t time.Time) string {
 // Return uuid string.
 func uid() string {
 	return uuid.NewRandom().String()
+}
+
+type Properties map[string]interface{}
+type Trait map[string]interface{}
+
+func (p Properties) Set(key string, value interface{}) Properties {
+	p[key] = value
+	return p
+}
+
+func (tr Trait) Set(key string, value interface{}) Trait {
+	tr[key] = value
+	return tr
+}
+
+func NewProperties() Properties {
+	return make(Properties)
+}
+
+func NewTrait() Trait {
+	return make(Trait)
+}
+
+func (t *Track) SetProperties(properties Properties) {
+	t.Properties = properties
+}
+
+func (p *Page) SetProperties(properties Properties) {
+	p.Properties = properties
+}
+
+func (g *Identify) SetTrait(properties Trait) {
+	g.Traits = properties
+}
+
+func (g *Group) SetTrait(properties Trait) {
+	g.Traits = properties
 }
