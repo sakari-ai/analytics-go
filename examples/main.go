@@ -3,7 +3,7 @@ package main
 import "github.com/sakari-ai/analytics-go"
 
 // User mock up sourcing
-// Ideally, this UserSession service must return via Context
+// Ideally, this UserSession service must return user ID via Context
 type UserSession struct {
 }
 

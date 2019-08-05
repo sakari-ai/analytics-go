@@ -1,6 +1,7 @@
 package analytics
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"sync"
@@ -108,7 +109,9 @@ type Alias struct {
 	Message
 }
 
-type UserSourcing func() string
+type UserSourcing interface {
+	GetUserId(ctx context.Context) string
+}
 
 // httpClient which batches messages and flushes at the given Interval or
 // when the Size limit is exceeded. Set Verbose to true to enable
@@ -147,9 +150,20 @@ type Client struct {
 
 type Options func(c *Client)
 
+type ContextOptions func(c *Client, target func(userId string))
+
 func WithInitialUserSourcing(sourcing UserSourcing) Options {
 	return func(c *Client) {
 		c.user = sourcing
+	}
+}
+
+func WithContext(ctx context.Context) ContextOptions {
+	return func(c *Client, target func(id string)) {
+		if c.user != nil {
+			id := c.user.GetUserId(ctx)
+			target(id)
+		}
 	}
 }
 
@@ -203,14 +217,16 @@ func (c *Client) Alias(msg *Alias) error {
 }
 
 // Page buffers an "page" message.
-func (c *Client) Page(msg *Page) error {
+func (c *Client) Page(msg *Page, opts ...ContextOptions) error {
 	if exist := msg.Context["library"]; exist == nil {
 		if msg.Context == nil {
 			msg.Context = DefaultContext
 		}
 	}
-	if msg.AnonymousId == "" {
-		msg.AnonymousId = c.user()
+	for _, targetContext := range opts {
+		targetContext(c, func(userId string) {
+			msg.AnonymousId = userId
+		})
 	}
 	if msg.AnonymousId == "" {
 		return ErrorUserIdNotFound
@@ -223,7 +239,7 @@ func (c *Client) Page(msg *Page) error {
 }
 
 // Group buffers an "group" message.
-func (c *Client) Group(msg *Group) error {
+func (c *Client) Group(msg *Group, opts ...ContextOptions) error {
 	if exist := msg.Context["library"]; exist == nil {
 		if msg.Context == nil {
 			msg.Context = DefaultContext
@@ -233,8 +249,10 @@ func (c *Client) Group(msg *Group) error {
 		return errors.New("you must pass a 'groupId'")
 	}
 
-	if msg.AnonymousId == "" {
-		msg.AnonymousId = c.user()
+	for _, targetContext := range opts {
+		targetContext(c, func(userId string) {
+			msg.AnonymousId = userId
+		})
 	}
 	if msg.AnonymousId == "" {
 		return ErrorUserIdNotFound
@@ -247,7 +265,7 @@ func (c *Client) Group(msg *Group) error {
 }
 
 // Identify buffers an "identify" message.
-func (c *Client) Identify(msg *Identify) error {
+func (c *Client) Identify(msg *Identify, opts ...ContextOptions) error {
 	if exist := msg.Context["library"]; exist == nil {
 		if msg.Context == nil {
 			msg.Context = DefaultContext
@@ -256,8 +274,10 @@ func (c *Client) Identify(msg *Identify) error {
 	if msg.UserId == "" {
 		return errors.New("you must pass 'identify.userId'")
 	}
-	if msg.AnonymousId == "" {
-		msg.AnonymousId = c.user()
+	for _, targetContext := range opts {
+		targetContext(c, func(userId string) {
+			msg.AnonymousId = userId
+		})
 	}
 	if msg.AnonymousId == "" {
 		return ErrorUserIdNotFound
@@ -270,7 +290,7 @@ func (c *Client) Identify(msg *Identify) error {
 }
 
 // Track buffers an "track" message.
-func (c *Client) Track(msg *Track) error {
+func (c *Client) Track(msg *Track, opts ...ContextOptions) error {
 	if exist := msg.Context["library"]; exist == nil {
 		if msg.Context == nil {
 			msg.Context = DefaultContext
@@ -279,8 +299,10 @@ func (c *Client) Track(msg *Track) error {
 	if msg.Event == "" {
 		return errors.New("you must pass 'track.event'")
 	}
-	if msg.AnonymousId == "" {
-		msg.AnonymousId = c.user()
+	for _, targetContext := range opts {
+		targetContext(c, func(userId string) {
+			msg.AnonymousId = userId
+		})
 	}
 	if msg.AnonymousId == "" {
 		return ErrorUserIdNotFound

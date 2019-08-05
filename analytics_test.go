@@ -1,11 +1,13 @@
 package analytics
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"gopkg.in/h2non/gock.v1"
 )
 
@@ -13,6 +15,15 @@ const (
 	testAccountID = "sakari-account-id"
 	testApiKey    = "test-api-key"
 )
+
+type mockUserSourcing struct {
+	mock.Mock
+}
+
+func (m *mockUserSourcing) GetUserId(ctx context.Context) string {
+	arg := m.Called(ctx)
+	return arg.String(0)
+}
 
 func TestNew(t *testing.T) {
 	type args struct {
@@ -55,6 +66,7 @@ func (u *UserSession) GetUserId() string {
 }
 
 func TestNew_With_UserSourcing(t *testing.T) {
+	_mockUserSourcing := new(mockUserSourcing)
 	type args struct {
 		key     string
 		account string
@@ -70,31 +82,17 @@ func TestNew_With_UserSourcing(t *testing.T) {
 			args: args{
 				key:     "Api-KEY",
 				account: "Sakari-Account",
-				opts: []Options{WithInitialUserSourcing(func() string {
-					u := UserSession{testUserId: "test-1"}
-					return u.GetUserId()
-				})},
+				opts:    []Options{WithInitialUserSourcing(_mockUserSourcing)},
 			},
 			expectedUserID: "test-1",
-		},
-		{
-			name: "#2: Create with anonyous user sourcing",
-			args: args{
-				key:     "Api-KEY",
-				account: "Sakari-Account",
-				opts: []Options{WithInitialUserSourcing(func() string {
-					u := UserSession{testUserId: "anonymous-1"}
-					return u.GetUserId()
-				})},
-			},
-			expectedUserID: "anonymous-1",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			_mockUserSourcing.On("GetUserId", mock.Anything).Return(tt.expectedUserID)
 			got := New(tt.args.key, tt.args.account, tt.args.opts...)
 
-			assert.Equal(t, got.user(), tt.expectedUserID)
+			assert.Equal(t, tt.expectedUserID, got.user.GetUserId(context.Background()))
 		})
 	}
 }
@@ -182,10 +180,10 @@ func TestClient_Identify(t *testing.T) {
 			createMockServer(Endpoint)
 			defer gock.Off()
 			c := createTestClientEnvironment(listenError)
-			c.user = func() string {
-				return "identified-user-id"
-			}
-			if err := c.Identify(tt.args.msg); !reflect.DeepEqual(err, tt.wantErr) {
+			_mockUserSourcing := new(mockUserSourcing)
+			_mockUserSourcing.On("GetUserId", mock.Anything).Return("identified-user-id")
+			c.user = _mockUserSourcing
+			if err := c.Identify(tt.args.msg, WithContext(context.Background())); !reflect.DeepEqual(err, tt.wantErr) {
 				t.Errorf("Client.Alias() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			c.Close()
@@ -231,10 +229,10 @@ func TestClient_Track(t *testing.T) {
 			createMockServer(Endpoint)
 			defer gock.Off()
 			c := createTestClientEnvironment(listenError)
-			c.user = func() string {
-				return "testing-user"
-			}
-			if err := c.Track(tt.args.msg); !reflect.DeepEqual(err, tt.wantErr) {
+			_mockUserSourcing := new(mockUserSourcing)
+			_mockUserSourcing.On("GetUserId", mock.Anything).Return("testing-user")
+			c.user = _mockUserSourcing
+			if err := c.Track(tt.args.msg, WithContext(context.Background())); !reflect.DeepEqual(err, tt.wantErr) {
 				t.Errorf("Client.Alias() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			c.Close()
@@ -273,10 +271,10 @@ func TestClient_Page(t *testing.T) {
 			createMockServer(Endpoint)
 			defer gock.Off()
 			c := createTestClientEnvironment(listenError)
-			c.user = func() string {
-				return "testing-user"
-			}
-			if err := c.Page(tt.args.msg); !reflect.DeepEqual(err, tt.wantErr) {
+			_mockUserSourcing := new(mockUserSourcing)
+			_mockUserSourcing.On("GetUserId", mock.Anything).Return("testing-user")
+			c.user = _mockUserSourcing
+			if err := c.Page(tt.args.msg, WithContext(context.Background())); !reflect.DeepEqual(err, tt.wantErr) {
 				t.Errorf("Client.Alias() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			c.Close()
@@ -322,10 +320,10 @@ func TestClient_Group(t *testing.T) {
 			createMockServer(Endpoint)
 			defer gock.Off()
 			c := createTestClientEnvironment(listenError)
-			c.user = func() string {
-				return "testing-user"
-			}
-			if err := c.Group(tt.args.msg); !reflect.DeepEqual(err, tt.wantErr) {
+			_mockUserSourcing := new(mockUserSourcing)
+			_mockUserSourcing.On("GetUserId", mock.Anything).Return("testing-user")
+			c.user = _mockUserSourcing
+			if err := c.Group(tt.args.msg, WithContext(context.Background())); !reflect.DeepEqual(err, tt.wantErr) {
 				t.Errorf("Client.Alias() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			c.Close()
