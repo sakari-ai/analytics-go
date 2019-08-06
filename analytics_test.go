@@ -169,7 +169,7 @@ func TestClient_Identify(t *testing.T) {
 		{
 			name: "#2: Valid message",
 			args: args{
-				msg: &Identify{UserId: "paul@sakari.ai"},
+				msg: &Identify{UserId: "paul@sakari.ai", AnonymousId: "must-declare-anonymous-id"},
 			},
 			wantErr: nil,
 		},
@@ -183,7 +183,7 @@ func TestClient_Identify(t *testing.T) {
 			_mockUserSourcing := new(mockUserSourcing)
 			_mockUserSourcing.On("GetUserId", mock.Anything).Return("identified-user-id")
 			c.user = _mockUserSourcing
-			if err := c.Identify(tt.args.msg, WithContext(context.Background())); !reflect.DeepEqual(err, tt.wantErr) {
+			if err := c.Identify(tt.args.msg); !reflect.DeepEqual(err, tt.wantErr) {
 				t.Errorf("Client.Alias() error = %v, wantErr %v", err, tt.wantErr)
 			}
 			c.Close()

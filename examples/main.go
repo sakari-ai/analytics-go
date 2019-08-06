@@ -12,7 +12,7 @@ type UserSession struct {
 
 //GetUserId will rely user-id in context
 func (u *UserSession) GetUserId(ctx context.Context) string {
-	return "user-id"
+	return "proper-user"
 }
 
 func main() {
@@ -30,12 +30,12 @@ func main() {
 }
 
 func trackPage(sakari *analytics.Client) {
-	_ = sakari.Page(&analytics.Page{Name: "Page - X", Category: "x-me"})
+	_ = sakari.Page(&analytics.Page{Name: "Page - X", Category: "x-me", AnonymousId: "proper-user"})
 }
 
 func trackArbitraryEvent(sakari *analytics.Client) {
 	_ = sakari.Track(&analytics.Track{Event: "click",
-		Properties: analytics.NewProperties().Set("name", "Paul").Set("duration", 10)})
+		Properties: analytics.NewProperties().Set("name", "Paul").Set("duration", 10), AnonymousId: "proper-user"})
 }
 
 func trackGroupEvent_By_Context(sakari *analytics.Client) {
@@ -49,7 +49,7 @@ func trackIdentify(sakari *analytics.Client) {
 	_ = sakari.Identify(
 		&analytics.Identify{
 			UserId:      "user@gmail.com",
-			AnonymousId: "user-id",
+			AnonymousId: "proper-user",
 			Traits:      analytics.NewTrait().Set("package", "premium")},
 	)
 }

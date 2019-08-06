@@ -22,7 +22,7 @@ import (
 const Version = "2.1.0"
 
 // Endpoint for the Segment API.
-const Endpoint = "https://jpeg.sakari.ai"
+const Endpoint = "http://localhost:8088"
 
 var (
 	// DefaultContext of message batches.
@@ -211,7 +211,7 @@ func (c *Client) Alias(msg *Alias) error {
 	}
 
 	msg.Type = "alias"
-	c.queue(msg)
+	c.queue(msg, msg.Type)
 
 	return nil
 }
@@ -233,7 +233,7 @@ func (c *Client) Page(msg *Page, opts ...ContextOptions) error {
 	}
 
 	msg.Type = "page"
-	c.queue(msg)
+	c.queue(msg, msg.Type)
 
 	return nil
 }
@@ -259,7 +259,7 @@ func (c *Client) Group(msg *Group, opts ...ContextOptions) error {
 	}
 
 	msg.Type = "group"
-	c.queue(msg)
+	c.queue(msg, msg.Type)
 
 	return nil
 }
@@ -279,7 +279,7 @@ func (c *Client) Identify(msg *Identify) error {
 	}
 
 	msg.Type = "identify"
-	c.queue(msg)
+	c.queue(msg, msg.Type)
 
 	return nil
 }
@@ -303,7 +303,7 @@ func (c *Client) Track(msg *Track, opts ...ContextOptions) error {
 		return ErrorUserIdNotFound
 	}
 	msg.Type = "track"
-	c.queue(msg)
+	c.queue(msg, msg.Type)
 
 	return nil
 }
@@ -313,11 +313,13 @@ func (c *Client) startLoop() {
 }
 
 // Queue message.
-func (c *Client) queue(msg message) {
+func (c *Client) queue(msg message, t string) {
 	c.once.Do(c.startLoop)
 	msg.setMessageId(c.uid())
 	msg.setTimestamp(timestamp(c.now()))
-	c.msgs <- msg
+	wrapper := make(map[string]interface{})
+	wrapper[t] = msg
+	c.msgs <- wrapper
 }
 
 // Close and flush metrics.
@@ -482,7 +484,7 @@ func (m *Message) setMessageId(s string) {
 
 // Return formatted timestamp.
 func timestamp(t time.Time) string {
-	return strftime.Format("%Y-%m-%dT%H:%M:%S%z", t)
+	return strftime.Format("2006-01-02T15:04:05.999999999Z", t)
 }
 
 // Return uuid string.
