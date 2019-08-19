@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jehiah/go-strftime"
 	"github.com/segmentio/backo-go"
 	"github.com/xtgo/uuid"
 )
@@ -22,7 +21,7 @@ import (
 const Version = "2.1.0"
 
 // Endpoint for the Segment API.
-const Endpoint = "https://jpeg.sakari.ai"
+const Endpoint = "https://stag-jpeg.sakari.ai"
 
 var (
 	// DefaultContext of message batches.
@@ -484,7 +483,7 @@ func (m *Message) setMessageId(s string) {
 
 // Return formatted timestamp.
 func timestamp(t time.Time) string {
-	return strftime.Format("2006-01-02T15:04:05.999999999Z", t)
+	return t.Format(time.RFC3339Nano)
 }
 
 // Return uuid string.
