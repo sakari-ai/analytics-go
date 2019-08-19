@@ -21,7 +21,7 @@ import (
 const Version = "2.1.0"
 
 // Endpoint for the Segment API.
-const Endpoint = "https://stag-jpeg.sakari.ai"
+const Endpoint = "https://jpeg.sakari.ai"
 
 var (
 	// DefaultContext of message batches.
